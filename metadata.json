@@ -1,0 +1,6 @@
+{
+  "name": "ICEVES CRM",
+  "description": "CRM do ICEVES para o programa Escola de Cristo: disciplina, rotina e score dos alunos do internato.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

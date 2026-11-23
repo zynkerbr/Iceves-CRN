@@ -1,0 +1,435 @@
+# PROMPT MESTRE — CRM ICEVES (Escola de Cristo)
+
+> Como usar no Lovable: anexe o arquivo `ICEVES___Design_System.html` (e o logo do ICEVES) na conversa, cole este prompt inteiro e peça para construir em etapas (a seção 13 define a ordem). Depois de cada etapa, teste e só então peça a próxima.
+
+---
+
+## 0. CONTEXTO E OBJETIVO
+
+Crie o **CRM do ICEVES (Instituto Cristão de Educação Vida e Saúde) para o programa Escola de Cristo**: um **PWA mobile-first, em português do Brasil**, que centraliza a **disciplina, a rotina e o score** dos alunos do internato. O sistema registra advertências, infrações, disciplina, notas de vistoria dos dormitórios, escalas de trabalho, pontos, elegibilidade para o passeio e checklists de chamada.
+
+Princípios que guiam todas as decisões:
+- O **monitor usa o celular com uma mão**, muitas vezes **sem internet**. Tudo que ele lança precisa funcionar offline e sincronizar depois.
+- O sistema **apoia a formação; a decisão final é sempre humana**. Casos graves (suspensão, cancelamento de matrícula) só são sinalizados, nunca decididos pelo sistema.
+- Há **menores de idade**: LGPD, controle de acesso rigoroso e auditoria de tudo.
+- Use sempre **"equipe"** (nunca "time"), frases curtas, verbo no botão ("Lançar advertência") e erros que dizem o que fazer.
+- **Nunca invente dados reais.** Todos os dados de exemplo usam placeholders: "Aluno Exemplo A", "Aluno Exemplo B", "Monitor Exemplo".
+
+## 1. STACK E ESTRUTURA
+
+- React + Vite + TypeScript, Tailwind CSS, shadcn/ui (customizado com os tokens da seção 2), TanStack Query, React Router, react-hook-form + zod.
+- Supabase: Auth (e-mail/senha), Postgres, RLS por perfil, Realtime (contador da chamada), Storage (só se necessário). Gere as migrations SQL da seção 4.
+- PWA com `vite-plugin-pwa` (Workbox) e **Dexie (IndexedDB)** para fila offline.
+- Gráficos com Recharts. PDF do boletim na fase 3.
+
+```
+src/
+  styles/tokens.css        # tokens da seção 2
+  components/ui/           # Button, Badge, NotaPicker, SegPresenca, ProgressBar, Toast, Skeleton, BlurText, ScoreCount
+  features/                # vistoria, advertencias, infracoes, disciplina, pontos, escalas, passeio, equipes, chamada, videos, config
+  lib/supabase.ts, lib/offline.ts, lib/regras.ts
+  routes/
+```
+
+## 2. DESIGN SYSTEM (fonte: arquivo anexo; siga à risca)
+
+**Tipografia:** Inter 400–800 em toda a interface (`letter-spacing:-.01em`), **JetBrains Mono** só para códigos e tokens. Números de score com `font-variant-numeric: tabular-nums`.
+
+**Tokens (`tokens.css`):**
+
+```css
+:root{
+  --bg:#FBFCF8; --surface:#fff; --surface2:#F1F5F9; --ink:#0F172A; --ink2:#64748B; --line:#E2E8F0;
+  --pri:#AFF33E; --pri-ink:#000; --pri-soft:#F0FDF4; --pri-text:#166534;
+  --gold:#24443A; --gold-ink:#fff;
+  --ok:#1F9D55; --ok-soft:#E6F5EC;
+  --warn:#C97A00; --warn-soft:#FFF3DC;
+  --bad:#D03A3A; --bad-soft:#FCEAEA;
+  --disc:#7A4FBF; --disc-soft:#F0EAFA;
+  --info:#2C8FD6; --info-soft:#E4F2FC;
+  --nota-1:#C62F2F; --nota-2:#E2672B; --nota-3:#D9A515; --nota-4:#5FA83F; --nota-5:#1F9D55;
+  --eq-meninos:#1F5FBF; --eq-meninos-soft:#E3EEFC; --eq-meninas:#A63B79; --eq-meninas-soft:#F8E6F0;
+  --r-sm:6px; --r-md:10px; --r-lg:16px; --r-full:999px;
+  --sh1:0 1px 2px rgba(20,26,38,.08); --sh2:0 4px 12px rgba(20,26,38,.10);
+  --sh3:0 12px 28px rgba(20,26,38,.14); --sh4:0 24px 48px rgba(20,26,38,.20);
+  --d1:90ms; --d2:150ms; --d3:240ms; --d4:400ms; --d5:700ms;
+  --e-std:cubic-bezier(.2,0,0,1); --e-in:cubic-bezier(.4,0,1,1);
+  --e-out:cubic-bezier(0,0,.2,1); --e-spring:cubic-bezier(.34,1.56,.64,1);
+  --f-ui:Inter,system-ui,sans-serif; --f-mono:"JetBrains Mono",ui-monospace,monospace;
+  box-sizing:border-box; padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+  color-scheme:light;
+}
+/* Escuro: automático (prefers-color-scheme) e manual via data-theme="dark"; botão de alternar no header */
+:root[data-theme="dark"]{
+  --bg:#020617; --surface:#0F172A; --surface2:#1E293B; --ink:#F8FAFC; --ink2:#94A3B8; --line:#1E293B;
+  --pri-soft:#14532D; --pri-text:#AFF33E; --gold:#AFF33E; --gold-ink:#000;
+  --ok-soft:#10281B; --warn-soft:#2D2210; --bad-soft:#2E1717; --disc-soft:#221A33;
+  --warn:#F0A83A; --bad:#F07070; color-scheme:dark;
+}
+@media (prefers-color-scheme:dark){ :root:not([data-theme="light"]){ /* repetir os mesmos valores do bloco acima */ } }
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:400 15px/1.6 var(--f-ui)}
+```
+
+**Escalas de cor (10 passos: 50 a 900)** — registre no Tailwind como `lima`, `folha`, `floresta`, `slate`:
+- Lima (primária): #F6FDE8, #EAFBCC, #D4F79C, #BFF568, **#AFF33E**, #8FD426, #6FAA18, #54801A, #3E6018, #2A4212
+- Folha (logo): #EEF8E4, #D9EEC3, #BCDD93, #A0CE66, #8CC63E, #6FAE2C, #3E8F32, #1B7F37, #1A5E2E, #16422A
+- Floresta (anel do logo): #F2F6F0, #E1EBDC, #C6DC9E, #9FC3A8, #7FA98A, #5B8A6C, #3F6B55, #2F5646, #24443A, #162B24
+- Slate (neutra): #F8FAFC, #F1F5F9, #E2E8F0, #CBD5E1, #94A3B8, #64748B, #475569, #334155, #1E293B, #0F172A
+
+**Regras de cor:** a lima #AFF33E é a primária nos dois temas, **sempre com texto preto**. Texto verde sobre fundo claro usa #166534. Cores de domínio têm significado fixo e **nunca são decoração**; cor **sempre acompanhada de texto ou número**. Contraste mínimo 4,5:1.
+
+**Escala tipográfica:** Display 800/60px/1.05/-.03em · H1 700/36/1.2/-.02em · H2 700/30/1.2/-.02em · H3 600/22/1.3/-.01em · H4 600/18/1.3 · Corpo grande 400/16/1.6 · Corpo 400/15/1.6 · Pequeno 400/13/1.5 · Legenda 500/12/1.4. Score: 64px/800, 40px/800 (ex.: "36 pts"), 24px/800 (ex.: "+1").
+
+**Espaço (base 4px):** 4, 8, 12, 16, 24, 32, 48, 64. **Grid:** 4 colunas no celular, 8 no tablet, 12 no desktop, margem 16px. **Alvo de toque mínimo 44px; 52px nos botões de nota.** `main` com max-width 1040px.
+
+**Componentes (CSS base):**
+
+```css
+.btn{font:600 14px var(--f-ui);border:0;border-radius:var(--r-md);padding:0 18px;height:44px;cursor:pointer;background:var(--pri);color:var(--pri-ink);transition:transform var(--d1) var(--e-std),box-shadow var(--d2) var(--e-std)}
+.btn:hover{box-shadow:var(--sh2)} .btn:active{transform:scale(.97)}
+.btn.sec{background:var(--pri-soft);color:var(--pri-text)} .btn.gold{background:var(--gold);color:var(--gold-ink)}
+.btn.ghost{background:transparent;color:var(--ink);border:1px solid var(--line)} .btn.bad{background:var(--bad);color:#fff}
+.btn.sm{height:34px;font-size:13px;padding:0 12px} .btn.lg{height:52px;font-size:16px;padding:0 26px}
+.btn[disabled]{opacity:.45;cursor:not-allowed;box-shadow:none}
+.btn3d{border:1px solid var(--ink);padding:12px 30px;border-radius:30px;background:var(--pri);color:#000;font:800 15px var(--f-ui);box-shadow:0 0 1px var(--ink);transition-duration:.3s}
+.btn3d:hover{transform:translateY(-10px);box-shadow:0 7px 1px var(--ink)} .btn3d:active{transform:translateY(10px);box-shadow:0 0 1px var(--ink)}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:20px}
+.badge{display:inline-flex;align-items:center;gap:6px;font:600 12px var(--f-ui);padding:3px 10px;border-radius:var(--r-full)}
+.badge i{width:7px;height:7px;border-radius:50%;background:currentColor}
+.b-ok{background:var(--ok-soft);color:var(--ok)} .b-warn{background:var(--warn-soft);color:var(--warn)}
+.b-bad{background:var(--bad-soft);color:var(--bad)} .b-disc{background:var(--disc-soft);color:var(--disc)} .b-pri{background:var(--pri-soft);color:var(--pri-text)}
+.b-warn i{animation:pulse 1.6s var(--e-std) infinite}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(1.5)}}
+.nota{display:flex;gap:8px}
+.nota button{width:52px;height:52px;border-radius:var(--r-md);border:2px solid var(--line);background:var(--surface);font:700 20px var(--f-ui);color:var(--ink)}
+.nota button.on{color:#fff;border-color:transparent;animation:pop var(--d3) var(--e-spring)} /* fundo = var(--nota-N) */
+@keyframes pop{0%{transform:scale(.8)}60%{transform:scale(1.14)}100%{transform:scale(1)}}
+.seg{display:inline-flex;background:var(--surface2);border-radius:var(--r-md);padding:3px}
+.seg button{border:0;background:transparent;padding:0 14px;height:38px;border-radius:8px;font:600 13px var(--f-ui);color:var(--ink2)}
+.seg button.on{background:var(--surface);color:var(--ink);box-shadow:var(--sh1)}
+.seg button.on[data-s=p]{color:var(--ok)} .seg button.on[data-s=a]{color:var(--warn)} .seg button.on[data-s=f]{color:var(--bad)}
+.bar{height:10px;background:var(--surface2);border-radius:var(--r-full);overflow:hidden}
+.bar>div{height:100%;background:linear-gradient(90deg,var(--pri),#22C55E);border-radius:inherit;transition:width var(--d5) var(--e-out)}
+input.f{width:100%;height:46px;border:1.5px solid var(--line);border-radius:var(--r-md);padding:0 14px;font:400 15px var(--f-ui);background:var(--surface);color:var(--ink)}
+input.f:focus{border-color:var(--pri);outline:none;box-shadow:0 0 0 4px var(--pri-soft)}
+input.f.err{border-color:var(--bad);animation:shake var(--d4) var(--e-std)}
+@keyframes shake{20%,60%{transform:translateX(-6px)}40%,80%{transform:translateX(6px)}}
+.sk{height:14px;border-radius:7px;background:linear-gradient(90deg,var(--surface2) 25%,var(--line) 50%,var(--surface2) 75%);background-size:200% 100%;animation:sh 1.4s linear infinite}
+@keyframes sh{to{background-position:-200% 0}}
+.toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translate(-50%,24px);background:var(--ink);color:var(--bg);padding:12px 18px;border-radius:var(--r-md);box-shadow:var(--sh3);opacity:0;transition:all var(--d3) var(--e-out);z-index:40}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+a:focus-visible,button:focus-visible,input:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
+::-webkit-scrollbar-thumb{background-image:linear-gradient(180deg,#AFF33E,#22C55E);border-radius:20px;border:3px solid var(--bg)}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
+```
+
+**Header:** sticky, `top:env(safe-area-inset-top)`, fundo `--surface`, borda inferior, logo circular 32px, links em pílula (hover `--pri-soft`/`--pri-text`), botão de tema à direita. Em telas com header sticky, adicione `body::before` fixo com a altura de `safe-area-inset-top` e o mesmo fundo.
+
+**Movimento** (só responde a uma ação e mostra o que mudou): `--d1` toque em botão · `--d2` hover/foco · `--d3` seleção e abrir/fechar · `--d4` erro · `--d5` barras e contagem de score.
+
+**Componentes animados (React):**
+
+```tsx
+// BlurText: use em todo h1/h2 (por palavras, atraso 110ms)
+export function BlurText({ text, delay = 110, as: Tag = "h2" }: { text: string; delay?: number; as?: any }) {
+  const ref = useRef<HTMLElement>(null);
+  const rm = typeof matchMedia !== "undefined" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  useEffect(() => {
+    if (rm || !ref.current) return;
+    const spans = ref.current.querySelectorAll("span");
+    const io = new IntersectionObserver(([e]) => {
+      if (!e.isIntersecting) return; io.disconnect();
+      spans.forEach((s, i) => s.animate([
+        { filter: "blur(10px)", opacity: 0, transform: "translateY(-50px)" },
+        { filter: "blur(5px)", opacity: .5, transform: "translateY(5px)", offset: .5 },
+        { filter: "blur(0)", opacity: 1, transform: "translateY(0)" }],
+        { duration: 700, delay: i * delay, fill: "both", easing: "linear" }));
+    }, { threshold: .1 });
+    io.observe(ref.current); return () => io.disconnect();
+  }, [text, rm]);
+  return <Tag ref={ref} aria-label={text} style={{ display: "flex", flexWrap: "wrap" }}>
+    {text.split(" ").map((w, i) => <span key={i} aria-hidden style={{ display: "inline-block", opacity: rm ? 1 : 0 }}>{w}&nbsp;</span>)}
+  </Tag>;
+}
+
+// Score contando (900ms, easing cúbico), vírgula decimal
+export function useCountUp(to: number, ms = 900, dec = 1) {
+  const [v, setV] = useState(0);
+  useEffect(() => {
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches) { setV(to); return; }
+    let t0: number | null = null, raf = 0;
+    const f = (t: number) => { t0 ??= t; const p = Math.min((t - t0) / ms, 1);
+      setV(to * (1 - Math.pow(1 - p, 3))); if (p < 1) raf = requestAnimationFrame(f); };
+    raf = requestAnimationFrame(f); return () => cancelAnimationFrame(raf);
+  }, [to, ms]);
+  return v.toFixed(dec).replace(".", ",");
+}
+```
+Também: revelar cards ao rolar (opacity+blur+translateY 24px, .7s) e scroll suave com Lenis (desligado em reduced-motion).
+
+## 3. PERFIS E PERMISSÕES
+
+| Perfil | Acesso |
+|---|---|
+| Aluno | Só o próprio perfil: score, histórico, o que falta para a meta, contestação |
+| Monitor | Seus quartos e sua equipe: lança vistoria, advertência e presença |
+| Preceptor | Tudo de conduta, observações sensíveis, decide contestações |
+| Direção | Acesso total; configura pesos, metas e catálogos; aprova o passeio |
+
+- Observações sociais/pastorais ficam em tabela separada, visíveis só para preceptor e direção, com **marca visual própria** (borda `--disc`, ícone de cadeado, rótulo "Área restrita").
+- Registrar em `acessos_sensiveis` quem abriu o quê (aluno, recurso, data/hora).
+- Nomes de alunos só aparecem em telas com permissão. **Comparativos de equipe mostram apenas médias.**
+- Todo lançamento, edição e contestação grava autor e data em `auditoria`. **Nunca apagar:** correção é um novo lançamento.
+
+## 4. BANCO DE DADOS (migrations Supabase)
+
+```sql
+create extension if not exists pgcrypto;
+create type papel as enum ('aluno','monitor','preceptor','direcao');
+create type grupo as enum ('meninos','meninas');
+create type setor_equipe as enum ('cozinha','limpeza_geral');
+create type item_vistoria as enum ('cama','guarda_roupa','cestos','chao','banheiro');
+create type presenca as enum ('pendente','presente','atrasado','ausente');
+create type topico as enum ('quarto','atraso','falta','setor','conduta','outro');
+create type origem as enum ('advertencias','vistoria','atraso','falta','direto');
+
+create table perfis (id uuid primary key references auth.users on delete cascade, nome text not null, papel papel not null, aluno_id uuid);
+create table quartos (id uuid primary key default gen_random_uuid(), nome text not null, grupo grupo not null, monitor_id uuid references perfis(id), fora_do_rodizio boolean default false, ordem int default 0);
+create table alunos (id uuid primary key default gen_random_uuid(), nome text not null, nascimento date, grupo grupo not null, quarto_id uuid references quartos(id), ativo boolean default true, em_disciplina boolean default false, criado_em timestamptz default now());
+alter table perfis add constraint perfis_aluno_fk foreign key (aluno_id) references alunos(id);
+create table meses (id uuid primary key default gen_random_uuid(), ano int not null, mes int not null, grupo grupo not null, inicio date, fim date, unique (ano, mes));
+create table alocacoes_setor (id uuid primary key default gen_random_uuid(), mes_id uuid references meses(id), aluno_id uuid references alunos(id), setor setor_equipe not null, unique (mes_id, aluno_id));
+create table escala_dormitorio (data date not null, quarto_id uuid references quartos(id), limpa boolean not null, primary key (data, quarto_id));
+
+create table config (chave text primary key, valor jsonb not null);
+insert into config values
+ ('pesos_nota','{"1":6,"2":3,"3":2,"4":0,"5":0}'), ('limite_vistoria','6'), ('zerar_soma_apos_infracao','true'),
+ ('advertencias_por_infracao','3'), ('infracoes_para_disciplina','3'), ('alerta_na_infracao','2'),
+ ('limite_diario_pontos_positivos','5'), ('infracao_atraso','1'), ('infracao_falta','2'),
+ ('equipe_do_mes_no_rodizio','false');
+
+create table vistorias (id uuid primary key default gen_random_uuid(), data date not null, quarto_id uuid not null references quartos(id), monitor_id uuid references perfis(id), criado_em timestamptz default now(), unique (data, quarto_id));
+create table vistoria_itens (id uuid primary key default gen_random_uuid(), vistoria_id uuid references vistorias(id) on delete cascade, aluno_id uuid references alunos(id), item item_vistoria not null, nota smallint not null check (nota between 1 and 5), peso_falha smallint not null default 0);
+create table acumulador_vistoria (alvo text check (alvo in ('aluno','quarto')), alvo_id uuid, soma int not null default 0, primary key (alvo, alvo_id));
+
+create table catalogo_motivos (id uuid primary key default gen_random_uuid(), tipo text not null check (tipo in ('advertencia','ponto')), descricao text not null, pontos int not null, ativo boolean default true);
+create table advertencias (id uuid primary key default gen_random_uuid(), aluno_id uuid not null references alunos(id), motivo_id uuid references catalogo_motivos(id), monitor_id uuid references perfis(id), data date default current_date, obs text, infracao_id uuid, criado_em timestamptz default now());
+create table infracoes (id uuid primary key default gen_random_uuid(), aluno_id uuid not null references alunos(id), topico topico not null, origem origem not null, descricao text, data date default current_date, autor_id uuid references perfis(id), criado_em timestamptz default now());
+create table disciplinas (id uuid primary key default gen_random_uuid(), aluno_id uuid not null unique references alunos(id), trabalho_tipo text, trabalho_quantidade text, prazo date, responsavel_id uuid references perfis(id), status text not null default 'pendente' check (status in ('pendente','cumprida')), criada_em timestamptz default now(), cumprida_em timestamptz);
+create table lancamentos_pontos (id uuid primary key default gen_random_uuid(), aluno_id uuid not null references alunos(id), valor int not null check (valor <> 0), motivo_id uuid references catalogo_motivos(id), motivo text not null, autor_id uuid references perfis(id), data date default current_date, criado_em timestamptz default now(), contestacao text, contestacao_status text check (contestacao_status in ('aberta','aceita','negada')), decidido_por uuid references perfis(id));
+create table observacoes_sensiveis (id uuid primary key default gen_random_uuid(), aluno_id uuid not null references alunos(id), texto text not null, autor_id uuid references perfis(id), criado_em timestamptz default now());
+
+create table periodos_meta (id uuid primary key default gen_random_uuid(), nome text not null, inicio date not null, fim date not null, meta_media numeric(4,2) not null, presenca_minima numeric(3,2) default 0.75);
+create table elegibilidade_passeio (id uuid primary key default gen_random_uuid(), periodo_id uuid references periodos_meta(id), aluno_id uuid references alunos(id), faixa text check (faixa in ('elegivel','em_risco','nao_elegivel')), aprovado boolean default false, aprovado_por uuid references perfis(id), excecao text, unique (periodo_id, aluno_id));
+
+create table eventos (id uuid primary key default gen_random_uuid(), nome text not null, data timestamptz not null, criado_por uuid references perfis(id));
+create table checklist_modelos (id uuid primary key default gen_random_uuid(), nome text not null, filtro jsonb);
+create table chamada_itens (id uuid primary key default gen_random_uuid(), evento_id uuid references eventos(id) on delete cascade, aluno_id uuid references alunos(id), status presenca not null default 'pendente', chegada timestamptz, unique (evento_id, aluno_id));
+
+create table disciplinas_videos (id uuid primary key default gen_random_uuid(), materia text check (materia in ('civil','social','academica','vocacional')), titulo text not null, url text not null, ordem int default 0);
+create table videos_assistidos (aluno_id uuid references alunos(id), video_id uuid references disciplinas_videos(id), em timestamptz default now(), primary key (aluno_id, video_id));
+create table notificacoes (id uuid primary key default gen_random_uuid(), destino_papel papel, destino_id uuid, mensagem text not null, lida boolean default false, criada_em timestamptz default now());
+create table auditoria (id bigint generated always as identity primary key, tabela text, registro_id text, acao text, usuario_id uuid, antes jsonb, depois jsonb, em timestamptz default now());
+create table acessos_sensiveis (id bigint generated always as identity primary key, usuario_id uuid, aluno_id uuid, recurso text, em timestamptz default now());
+```
+
+**Regras automáticas no banco (triggers, para valer também após sincronização offline):**
+
+```sql
+create or replace function cfg(k text) returns jsonb language sql stable as $$ select valor from config where chave = k $$;
+create or replace function papel_atual() returns papel language sql stable security definer as $$ select papel from perfis where id = auth.uid() $$;
+
+-- Advertência: -1 ponto e, a cada 3 sem infração, gera 1 infração
+create or replace function trg_advertencia() returns trigger language plpgsql security definer as $$
+declare n int; por int := (cfg('advertencias_por_infracao'))::int; inf uuid;
+begin
+  insert into lancamentos_pontos(aluno_id, valor, motivo_id, motivo, autor_id)
+  values (new.aluno_id, -1, new.motivo_id, coalesce(new.obs, 'Advertência'), new.monitor_id);
+  select count(*) into n from advertencias where aluno_id = new.aluno_id and infracao_id is null;
+  if n >= por then
+    insert into infracoes(aluno_id, topico, origem, descricao, autor_id)
+    values (new.aluno_id, 'conduta', 'advertencias', por || ' advertências acumuladas', new.monitor_id) returning id into inf;
+    update advertencias set infracao_id = inf where id in
+      (select id from advertencias where aluno_id = new.aluno_id and infracao_id is null order by criado_em limit por);
+  end if;
+  return new;
+end $$;
+create trigger t_advertencia after insert on advertencias for each row execute function trg_advertencia();
+
+-- Vistoria: soma de pesos de falha; ao chegar no limite, gera infração
+create or replace function trg_vistoria_item() returns trigger language plpgsql security definer as $$
+declare peso int; alvo_t text; alvo_i uuid; nova_soma int; lim int := (cfg('limite_vistoria'))::int; alu uuid;
+begin
+  peso := (cfg('pesos_nota') ->> new.nota::text)::int;
+  update vistoria_itens set peso_falha = peso where id = new.id;
+  if peso = 0 then return new; end if;
+  alvo_t := case when new.aluno_id is null then 'quarto' else 'aluno' end;
+  alvo_i := coalesce(new.aluno_id, (select quarto_id from vistorias where id = new.vistoria_id));
+  insert into acumulador_vistoria(alvo, alvo_id, soma) values (alvo_t, alvo_i, peso)
+    on conflict (alvo, alvo_id) do update set soma = acumulador_vistoria.soma + peso returning soma into nova_soma;
+  if nova_soma >= lim then
+    for alu in select id from alunos where ativo and ((alvo_t = 'aluno' and id = alvo_i) or (alvo_t = 'quarto' and quarto_id = alvo_i)) loop
+      insert into infracoes(aluno_id, topico, origem, descricao) values (alu, 'quarto', 'vistoria', 'Soma de notas da vistoria chegou a ' || nova_soma);
+    end loop;
+    update acumulador_vistoria set soma = case when (cfg('zerar_soma_apos_infracao'))::boolean then 0 else soma - lim end
+      where alvo = alvo_t and alvo_id = alvo_i;
+  end if;
+  return new;
+end $$;
+create trigger t_vistoria_item after insert on vistoria_itens for each row execute function trg_vistoria_item();
+
+-- Infração: alerta na 2ª; na 3ª (de qualquer tópico, no curso todo) abre disciplina uma única vez na vida
+create or replace function trg_infracao() returns trigger language plpgsql security definer as $$
+declare total int; nome_aluno text;
+begin
+  select count(*) into total from infracoes where aluno_id = new.aluno_id;
+  select nome into nome_aluno from alunos where id = new.aluno_id;
+  if total = (cfg('alerta_na_infracao'))::int then
+    insert into notificacoes(destino_papel, mensagem) values ('preceptor', nome_aluno || ' chegou à 2ª infração.');
+  end if;
+  if total >= (cfg('infracoes_para_disciplina'))::int and not exists (select 1 from disciplinas where aluno_id = new.aluno_id) then
+    insert into disciplinas(aluno_id) values (new.aluno_id);
+    update alunos set em_disciplina = true where id = new.aluno_id;
+    insert into notificacoes(destino_papel, mensagem) values
+      ('monitor', nome_aluno || ' está de disciplina. Atribua o trabalho e defina o prazo.'),
+      ('preceptor', nome_aluno || ' está de disciplina. Atribua o trabalho e defina o prazo.');
+  end if;
+  return new;
+end $$;
+create trigger t_infracao after insert on infracoes for each row execute function trg_infracao();
+
+-- Disciplina cumprida libera o aluno (e ele nunca entra de novo: aluno_id é único)
+create or replace function trg_disciplina_cumprida() returns trigger language plpgsql security definer as $$
+begin
+  if new.status = 'cumprida' and old.status <> 'cumprida' then
+    new.cumprida_em := now(); update alunos set em_disciplina = false where id = new.aluno_id;
+  end if;
+  return new;
+end $$;
+create trigger t_disc_cumprida before update on disciplinas for each row execute function trg_disciplina_cumprida();
+
+-- Média necessária para a meta do passeio
+create or replace function media_necessaria(meta numeric, total_dias int, pontos_feitos numeric, dias_restantes int)
+returns numeric language sql immutable as $$
+  select case when dias_restantes <= 0 then null else round((meta * total_dias - pontos_feitos) / dias_restantes, 1) end $$;
+
+-- Score por aluno/mês e por equipe (média por aluno, não soma)
+create view score_mensal as select aluno_id, date_trunc('month', data) as mes, sum(valor) as pontos from lancamentos_pontos group by 1, 2;
+create view score_equipes as
+select a.grupo, date_trunc('month', l.data) as mes,
+  round(sum(l.valor)::numeric / (select count(*) from alunos x where x.grupo = a.grupo and x.ativo), 2) as score_medio
+from alunos a join lancamentos_pontos l on l.aluno_id = a.id group by a.grupo, date_trunc('month', l.data);
+
+-- Auditoria genérica (aplicar em advertencias, infracoes, disciplinas, lancamentos_pontos, vistoria_itens, elegibilidade_passeio, observacoes_sensiveis)
+create or replace function trg_auditoria() returns trigger language plpgsql security definer as $$
+begin
+  insert into auditoria(tabela, registro_id, acao, usuario_id, antes, depois)
+  values (tg_table_name, coalesce(to_jsonb(new)->>'id', to_jsonb(old)->>'id'), tg_op, auth.uid(), to_jsonb(old), to_jsonb(new));
+  return coalesce(new, old);
+end $$;
+```
+
+**RLS:** habilite em todas as tabelas. Padrão (replicar):
+
+```sql
+alter table alunos enable row level security;
+create policy alunos_ver on alunos for select using (
+  papel_atual() in ('preceptor','direcao')
+  or (papel_atual() = 'monitor' and quarto_id in (select id from quartos where monitor_id = auth.uid()))
+  or id = (select aluno_id from perfis where id = auth.uid()));
+create policy sens_all on observacoes_sensiveis for all using (papel_atual() in ('preceptor','direcao'));
+```
+`config` e `catalogo_motivos`: leitura para autenticados, escrita só direção. `lancamentos_pontos`: sem UPDATE/DELETE direto; contestação e decisão por funções RPC (`contestar_lancamento`, `decidir_contestacao`).
+
+## 5. REGRAS DE NEGÓCIO
+
+**Terminologia:** equipe dos meninos e equipe das meninas; cada mês pertence a uma delas. Quarto/dormitório: em média 2 alunos + 1 monitor (raros com 3 alunos).
+
+**Rotina e escalas**
+- **Equipe do mês (sem folga):** cozinha ou limpeza geral (refeitório e auditório), todos os dias das **5h às 6h** e das **12:45 às 13:30**. Cada aluno da equipe é alocado a um setor no mês.
+- **Demais alunos:** limpeza dos dormitórios (varrer, passar pano, limpar banheiros), **12:45 às 13:30**, em **rodízio automático por quarto: um dia limpa, no outro fica livre**. Painel do monitor mostra "Quarto de hoje" e "Quarto de folga".
+
+**Vistoria diária** (nota 1 a 5 por item do aluno — cama, guarda-roupa, cestos — e do quarto — chão, banheiro). Pesos de falha: 1 Péssimo = 6 · 2 Ruim = 3 · 3 Bom = 2 · 4 Muito bom = 0 · 5 Excelente = 0. O padrão esperado é 4 ou 5. Notas baixas **se somam**: ao chegar a **6** gera **1 infração** (tópico "quarto"). Exemplos: 1 nota 1 = infração; 2 notas 2 = infração; 3 notas 3 = infração; 1 nota 2 + 2 notas 3 = 7 = infração. Registrar aluno, item, data, nota e monitor. Pesos e limite configuráveis.
+
+**Advertência → infração → disciplina**
+1. **Advertência:** falha leve, motivo de catálogo fechado, **-1 no score**. **A cada 3 advertências = 1 infração.**
+2. **Infração:** vem de (a) 3 advertências, (b) soma da vistoria, (c) Manual (atraso = 1, falta = 2) ou (d) lançamento direto de preceptor/direção. Guarda o tópico.
+3. **Alerta antecipado:** na **2ª infração**, avisar o preceptor.
+4. **Disciplina:** com **3 infrações de qualquer tópico, contadas no curso inteiro** (não é mensal), o aluno fica "de disciplina": o sistema avisa monitor e preceptor, atribui o trabalho (tipo, quantidade/duração, prazo, responsável); ao ser marcado como cumprido o aluno sai da situação. **Ele não entra em disciplina de novo.** Infrações seguintes continuam registradas e pesam no score e no passeio.
+5. Suspensão ou cancelamento de matrícula: **decisão humana**; o sistema só sinaliza.
+
+**Pontos e score:** ação boa +1 (ou +2/+3 se grande); advertência −1. Catálogo fechado de motivos com peso ajustável pela direção. **Limite diário** de pontos positivos por aluno. **Ajustar pontos:** botão no perfil, valor (+/−), **motivo obrigatório**, autor e data; o aluno vê o motivo e pode **contestar**; o preceptor decide. Score mensal, histórico por aluno e boletim mensal em PDF (fase 3). **Infração é trava:** bloqueia o passeio do período independentemente do score.
+
+**Meta e elegibilidade do passeio:** Elegível = meta de score atingida + sem infração no período + presença mínima. Faixas: **Elegível / Em risco / Não elegível**. Aluno de disciplina fica inelegível até cumprir o trabalho (configurável). O sistema sugere a lista; **a direção aprova**, com exceções justificadas e registradas.
+**Média necessária = (Meta × Total de dias − Pontos já feitos) ÷ Dias que faltam.** Exemplo: meta 4,0 em 30 dias, 10 dias passados com 36 pontos → (4,0×30 − 36) ÷ 20 = **4,2 por dia**. Se passar do máximo possível por dia, mostrar "meta inatingível neste período". Vale para aluno, equipe e passeio.
+
+**Score das equipes:** por período (mês ou curso): score médio por aluno, média das notas de vistoria, presença e pontualidade, infrações por aluno, alunos em risco/de disciplina, pontos positivos e evolução mês a mês. Comparação **só agregada**.
+
+**Checklist de chamada** (coral, culto, saída, refeição, reunião): modelos reutilizáveis ou criados na hora; participantes automáticos (todos, uma equipe, um grupo, um quarto); um toque marca **Presente / Atrasado / Ausente** com horário de chegada; contador em tempo real ("14 de 20 chegaram") e faltantes em destaque; opcionalmente atraso/falta gera advertência e presença pontual dá +1; funciona offline; histórico por evento.
+
+**Disciplinas e vídeos:** páginas Civil, Social, Acadêmica e Vocacional com vídeo explicativo apenas incorporado (YouTube não listado ou Supabase Storage) e registro de quem assistiu.
+
+**Parâmetros padrão assumidos (tudo editável em Configurações; marque como "confirmar"):**
+1. Meta do passeio = **média diária proporcional** pela fórmula acima.
+2. Infrações após a disciplina = **só registro e peso no passeio** (sem consequência automática).
+3. Alunos da equipe do mês **ficam fora do rodízio de dormitório** (config `equipe_do_mes_no_rodizio=false`); quem limpa o quarto deles é definido pelo monitor.
+4. A soma da vistoria **zera** após gerar a infração (opção de carregar o excedente).
+5. Infração de item do **quarto** (chão/banheiro) vai para **todos os alunos do quarto**.
+
+## 6. TELAS (mobile-first; ação principal na metade de baixo, botões ≥ 44px)
+
+1. **Login:** logo 96px, h1 com BlurText, campos `input.f`, erro com shake.
+2. **Painel do monitor:** cards "Quarto de hoje" / "Quarto de folga", vistoria pendente, alunos em risco, alertas (disciplina em roxo), atalhos `btn3d` "Lançar vistoria", "Lançar advertência", "Chamada".
+3. **Vistoria:** lista de quartos → quarto → por aluno, um `NotaPicker` (botões 52px, cor da nota) para cama, guarda-roupa e cestos; depois chão e banheiro. Mostra o significado ("Nota 2, Ruim. Peso de falha 3.") e o acumulado ("Soma 4 de 6", badge `warn` a partir de 4). Botão "Enviar vistoria" → toast "Vistoria enviada. Os dados foram sincronizados."
+4. **Advertência:** busca do aluno, motivo do catálogo, observação, confirmação. Mostra "2 de 3 advertências".
+5. **Perfil do aluno:** score grande com contagem animada, badges de estado, abas Resumo · Pontos · Advertências e infrações · Vistorias · Disciplina · Passeio (barra de meta + "Média necessária: 4,2 pontos por dia nos 20 dias que faltam") · Observações (restrita). Botão "Ajustar pontos" com modal (valor, motivo obrigatório).
+6. **Escalas:** rodízio por data, alocação da equipe do mês (cozinha ou limpeza geral).
+7. **Disciplina:** lista de alunos de disciplina, trabalho, prazo, responsável e botão "Marcar como cumprido".
+8. **Passeio:** períodos e metas, lista por faixa, "Aprovar passeio" (botão gold) e exceção justificada.
+9. **Equipes:** comparativo agregado em gráficos com as cores das equipes; nenhum nome individual.
+10. **Chamada:** escolher modelo → participantes → `SegPresenca` por aluno → contador em badge → faltantes em destaque.
+11. **Contestações** (preceptor), **Vídeos das disciplinas**, **Configurações** (direção: pesos, limites, catálogos, metas, usuários e papéis).
+
+## 7. OFFLINE / PWA
+
+- Manifest: nome "ICEVES CRM", `theme_color #AFF33E`, `background_color #FBFCF8`, `display: standalone`, ícones com o logo.
+- Service worker com cache do app shell e de dados de consulta.
+- **Fila Dexie (`outbox`)**: todo lançamento recebe **UUID gerado no cliente**, vai para a fila e sincroniza com `upsert` idempotente quando voltar a internet; tabelas de lançamento são só de inserção.
+- Faixa discreta "Sem internet, salvando no aparelho" e selo "Sincronizado há 2 minutos".
+- As regras automáticas rodam no banco, então valem após a sincronização.
+
+## 8. MICROTEXTOS
+
+"Aluno Exemplo está de disciplina. Atribua o trabalho e defina o prazo." · "Não foi possível salvar. Informe o motivo do ajuste de pontos." · "Vistoria enviada. Os dados foram sincronizados." · "Disciplina, rotina e formação em um só lugar" (slogan do login).
+
+## 9. DADOS DE EXEMPLO (seed)
+
+2 quartos (1 por equipe), 6 alunos "Aluno Exemplo A–F", 2 monitores, 1 preceptor, 1 direção (todos placeholders), catálogo com 6 motivos de advertência e 6 de ponto, 1 mês com equipe alocada, 1 período de meta de 30 dias com meta 4,0.
+
+## 10. CRITÉRIOS DE ACEITE
+
+- 1 nota 1, ou 2 notas 2, ou 3 notas 3, ou 1 nota 2 + 2 notas 3 geram 1 infração.
+- 3 advertências geram 1 infração e somam −3 no score.
+- A 2ª infração notifica o preceptor; a 3ª coloca o aluno "de disciplina" uma única vez; marcar como cumprido o libera e ele não volta.
+- Média necessária com meta 4,0, 30 dias, 36 pontos em 10 dias = 4,2.
+- Aluno não vê dados de outro aluno; monitor só vê seus quartos; observações sensíveis só preceptor e direção.
+- Tudo funciona em 360px de largura, com tema claro e escuro, teclado e `prefers-reduced-motion`.
+- Lançar vistoria sem internet e sincronizar depois não duplica registros.
+
+## 11. FASES FUTURAS
+
+Agente de WhatsApp do ICEVES (notificações e consulta de score), conquistas, comparativos e histórico de formatura.
+
+## 12. O QUE NÃO FAZER
+
+Não usar a palavra "time". Não mostrar nomes em comparativos. Não apagar lançamentos. Não decidir suspensão. Não usar cor sem rótulo. Não inventar dados reais de alunos.
+
+## 13. ORDEM DE CONSTRUÇÃO (entregue em etapas e pare para eu testar)
+
+1. **Etapa 1 — MVP:** tokens/design system, login, perfis e RLS, alunos, quartos, advertências, infrações, pontos, escalas e vistoria com notas.
+2. **Etapa 2:** disciplina com trabalho, chamada/checklists, score mensal, meta e elegibilidade do passeio, score das equipes.
+3. **Etapa 3:** boletim em PDF, alertas, vídeos das disciplinas e auditoria completa.
+4. **Etapa 4:** integração com WhatsApp.
+
+Comece pela **Etapa 1** e, ao terminar, liste o que foi feito e o que depende das minhas decisões.
